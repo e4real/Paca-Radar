@@ -29,6 +29,17 @@ bool gps_present() { return s_present; }
 
 void gps_poll() {
     if (!s_present) return;
+
+    // Diagnostic ladder (every ~8 s): chars=0 -> I2C read not returning NMEA; chars>0 but
+    // sent=0 -> bytes arrive but aren't valid NMEA (protocol/checksum); sent>0 but fix=0 ->
+    // valid data, just no satellite lock yet (needs clear sky / a few min on a cold start).
+    { static uint32_t lg = 0;
+      if (millis() - lg > 8000) { lg = millis();
+          Serial.printf("[gps] chars=%lu sent=%lu csErr=%lu sats=%d fix=%d\n",
+                        (unsigned long)s_gps.charsProcessed(), (unsigned long)s_gps.sentencesWithFix(),
+                        (unsigned long)s_gps.failedChecksum(), (int)s_gps.satellites.value(),
+                        (int)gps_has_fix()); } }
+
     enum { IDLE, WAIT_LEN, WAIT_DATA };
     static int      st = IDLE;
     static uint32_t t = 0;
