@@ -38,7 +38,7 @@ static AdsbClient            g_adsb;
 static RadarSettings         g_settings;
 static WiFiManager           g_wm;
 static int                   g_brightnessDay = BRIGHTNESS_DEFAULT;   // user brightness (web/NVS)
-static int                   g_volume = 60;                          // alert volume 0..100 (web/NVS)
+static int                   g_volume = 100;                          // alert volume 0..100 (web/NVS)
 static bool                  g_muted  = false;                       // mute alert pings
 static int                   g_alertMode = 2;                        // 0=off 1=emergencies 2=new+emergencies (web/NVS)
 static float                 g_proximityKm = 0.0f;                   // proximity alert radius, km (0=off) (web/NVS)
@@ -47,7 +47,7 @@ static bool                  g_showSweep = true;                     // rotating
 static int                   g_units = 0;                            // 0=Aviation 1=Metric 2=Imperial (web/NVS)
 static bool                  g_showAirports = true;                  // airport markers on/off (web/NVS)
 static int                   g_rotation = 0;                         // display rotation 0/1/2/3 = 0/90/180/270 (web/NVS)
-static int                   g_uiRot    = 0;                          // arbitrary full-screen rotation in degrees (web/NVS)
+static int                   g_uiRot    = 63;                          // arbitrary full-screen rotation in degrees (web/NVS)
 static bool                  g_useGps = false;                       // auto-set home from the LC76G GPS (-G variant) (web/NVS)
 static int                   g_trailLen = 2;                         // aircraft trails 0=off 1=short 2=med 3=long (web/NVS)
 static volatile bool         g_onBattery = false;                    // discharging (set on core 1, read on core 0)
@@ -146,7 +146,7 @@ static void loadSettings() {
     g_settings.homeLon = p.getDouble("homeLon", HOME_LON_DEFAULT);
     g_settings.rangeKm = p.getFloat("rangeKm", RANGE_KM_DEFAULT);
     g_brightnessDay    = p.getInt("bright", BRIGHTNESS_DEFAULT);
-    g_volume           = p.getInt("vol", 60);
+    g_volume           = p.getInt("vol", 100);
     g_muted            = p.getBool("mute", false);
     g_alertMode        = p.getInt("alertmode", 2);
     g_proximityKm      = p.getFloat("proxkm", 0.0f);
@@ -288,8 +288,8 @@ static void handleRoot() {
         snprintf(o, sizeof(o), "<option value=%d%s>%s</option>", i, i == g_units ? " selected" : "", unames[i]);
         uopts += o;
     }
-    const int   rdeg[]   = {0, 90, 120, 180, 270};
-    const char *rnames[] = {"0\xc2\xb0 (default)", "90\xc2\xb0", "120\xc2\xb0", "180\xc2\xb0", "270\xc2\xb0"};
+    const int   rdeg[]   = {0, 63, 90, 180, 270};
+    const char *rnames[] = {"0\xc2\xb0", "63\xc2\xb0 (default)", "90\xc2\xb0", "180\xc2\xb0", "270\xc2\xb0"};
     const int   curDeg   = (g_uiRot != 0) ? g_uiRot : (g_rotation * 90);
     String rotopts;
     for (int i = 0; i < 5; ++i) {
@@ -684,11 +684,11 @@ void setup() {
     {
         Preferences p;
         p.begin("capsuleradar", true);
-        const int t = p.getInt("theme", THEME_PHOSPHOR);
+        const int t = p.getInt("theme", THEME_AMBER);
         g_showSweep = p.getBool("sweep", true);
         g_showAirports = p.getBool("airports", true);
         g_rotation = p.getInt("rot", 0);
-        g_uiRot    = p.getInt("uirot", 0);
+        g_uiRot    = p.getInt("uirot", 63);
         p.end();
         radar::setTheme(t);
         radar::setSweepEnabled(g_showSweep);

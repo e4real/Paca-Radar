@@ -65,7 +65,7 @@
 #define BALL_R            9
 #define WAVE_EXPAND       28.0f
 
-static int        s_theme    = THEME_PHOSPHOR;
+static int        s_theme    = THEME_AMBER;
 static void      (*s_themeCb)(int) = nullptr;
 // scope "chrome" palette (rings/sweep/crosshair/labels) — retinted per theme
 static lv_color_t s_cRing = COL_GREEN, s_cLead = COL_LEAD, s_cInk = COL_INK, s_cSoft = COL_SOFT;

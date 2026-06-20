@@ -1,14 +1,14 @@
 #pragma once
 // Paca Sky Watch — build & user configuration.
 
-#define FW_VERSION "1.5.1"   // shown on the web config page + Stats screen; bump on release
+#define FW_VERSION "1.5.2"   // shown on the web config page + Stats screen; bump on release
 // Edit pins below: replace every -1 with the value from the Waveshare factory demo
 // (see docs/HARDWARE.md and docs/SETUP.md). Do NOT guess them.
 
-// ---------- Home location (default: Dénia, Spain) ----------
+// ---------- Home location (default: Wichita, KS area) ----------
 // Overridable at runtime via the captive portal (stored in NVS).
-#define HOME_LAT_DEFAULT   38.8409
-#define HOME_LON_DEFAULT    0.1059
+#define HOME_LAT_DEFAULT   37.80364
+#define HOME_LON_DEFAULT  -97.19551
 
 // ---------- Radar ----------
 #define RANGE_KM_DEFAULT    30.0f          // display range (outer ring). Query is wider, see ADSB_QUERY_KM
@@ -29,10 +29,10 @@ static const float RANGE_STEPS_KM[] = {10.0f, 20.0f, 30.0f, 50.0f, 100.0f};
 #define LCD_COL_OFFSET      6              // CO5300 column (x) gap on this panel (esp_lcd set_gap 0x06)
 #define LCD_ROW_OFFSET      0              // no row (y) gap
 #define LCD_QSPI_HZ         80000000       // CO5300 QSPI clock (vendor uses 40 MHz; 80 = faster, verify no artifacts)
-#define BRIGHTNESS_DEFAULT  200            // 0..255, panel brightness via cmd 0x51
-#define TZ_STR              "CET-1CEST,M3.5.0,M10.5.0/3"  // POSIX TZ (Spain) for local time/date
+#define BRIGHTNESS_DEFAULT  255            // 0..255, panel brightness via cmd 0x51
+#define TZ_STR              "CST6CDT,M3.2.0,M11.1.0"       // POSIX TZ (US Central) for local time/date
 #define BRIGHTNESS_IDLE     25             // dimmed after no touch for IDLE_DIM_MS
-#define IDLE_DIM_MS         20000          // dim the screen after this long without a touch
+#define IDLE_DIM_MS         300000         // dim the screen after this long without a touch
 
 // ---------- ADS-B API (free, non-commercial) ----------
 #define ADSB_PRIMARY_HOST   "api.airplanes.live"   // GET /v2/point/{lat}/{lon}/{radius_nm}
