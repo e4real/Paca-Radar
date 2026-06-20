@@ -1,4 +1,4 @@
-// Capsule Radar — entry point / glue. SKELETON: TODOs mark what to implement.
+// Paca Sky Watch — entry point / glue. SKELETON: TODOs mark what to implement.
 // Order of work is in CLAUDE.md (milestones). Bring up the Waveshare demo first.
 #include <Arduino.h>
 #include <WiFi.h>
@@ -25,7 +25,7 @@
 #include <Preferences.h>            // NVS (persist theme/settings)
 #include <time.h>                   // NTP/RTC clock + date
 #include <WebServer.h>              // configuration web page
-#include <ESPmDNS.h>                // http://capsuleradar.local
+#include <ESPmDNS.h>                // http://pacaskywatch.local
 #include <ArduinoOTA.h>             // OTA firmware update over WiFi (PlatformIO/espota)
 #include <Update.h>                 // browser OTA: self-flash an uploaded .bin
 #include <esp_heap_caps.h>          // largest-free-block metric (heap health)
@@ -70,7 +70,7 @@ static void adsb_task(void*) {
         if (conn && !wasConnected) {
             Serial.printf("[adsb] WiFi up, IP %s\n", WiFi.localIP().toString().c_str());
             configTzTime(TZ_STR, "pool.ntp.org", "time.nist.gov");  // local time (Spain)
-            Serial.println("[web] config: http://capsuleradar.local/  (or the IP above)");
+            Serial.println("[web] config: http://pacaskywatch.local/  (or the IP above)");
             // mDNS + OTA are started on core 1 (loop) to keep all mDNS use on one core
         }
         wasConnected = conn;
@@ -288,11 +288,13 @@ static void handleRoot() {
         snprintf(o, sizeof(o), "<option value=%d%s>%s</option>", i, i == g_units ? " selected" : "", unames[i]);
         uopts += o;
     }
-    const char *rnames[] = {"0\xc2\xb0 (default)", "90\xc2\xb0", "180\xc2\xb0", "270\xc2\xb0"};
+    const int   rdeg[]   = {0, 90, 120, 180, 270};
+    const char *rnames[] = {"0\xc2\xb0 (default)", "90\xc2\xb0", "120\xc2\xb0", "180\xc2\xb0", "270\xc2\xb0"};
+    const int   curDeg   = (g_uiRot != 0) ? g_uiRot : (g_rotation * 90);
     String rotopts;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         char o[64];
-        snprintf(o, sizeof(o), "<option value=%d%s>%s</option>", i, i == g_rotation ? " selected" : "", rnames[i]);
+        snprintf(o, sizeof(o), "<option value=%d%s>%s</option>", rdeg[i], rdeg[i] == curDeg ? " selected" : "", rnames[i]);
         rotopts += o;
     }
     const char *tlnames[] = {"Off", "Short", "Medium", "Long"};
@@ -331,7 +333,7 @@ static void handleRoot() {
     snprintf(buf, sizeof(buf),
         "<!DOCTYPE html><html><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>Capsule Radar</title>"
+        "<title>Paca Sky Watch</title>"
         "<link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
         "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"
         "<style>"
@@ -358,7 +360,7 @@ static void handleRoot() {
         ".sec{background:#0c1a12!important;color:#1dff86!important;border:1px solid #2a4a39!important}"
         "#map{height:220px;border-radius:10px;margin:6px 0 8px;border:1px solid #2a4a39;z-index:0}"
         "</style></head><body>"
-        "<div class=hd><div class=dot></div><div><h1>Capsule Radar</h1><p class=sub>Live ADS-B radar &middot; configuration</p></div></div>"
+        "<div class=hd><div class=dot></div><div><h1>Paca Sky Watch</h1><p class=sub>Live ADS-B radar &middot; configuration</p></div></div>"
         "<div class=card><div class=t>Location &amp; range</div><form method=POST action=/save>"
         "<label>Center point &mdash; tap the map or drag the pin</label>"
         "<div id=map></div>"
@@ -376,8 +378,6 @@ static void handleRoot() {
         "<label><input type=checkbox class=ck %s onchange='ap(this.checked)'>Show airports</label>"
         "<label>Aircraft trails</label><select onchange='tl(this.value)'>%s</select>"
         "<label>Screen rotation (USB-C position)</label><select onchange='ro(this.value)'>%s</select>"
-        "<label>Full screen rotation (0-359&deg;, rotates everything)</label>"
-        "<input type=number min=0 max=359 step=1 value='%d' onchange='sr(this.value)'>"
         "<label>Units</label><select onchange='u(this.value)'>%s</select></div>"
         "<div class=card><div class=t>Sound</div>"
         "<label>Volume</label>"
@@ -389,7 +389,7 @@ static void handleRoot() {
         "<div class=card><div class=t>Network</div>"
         "<p style='color:#9affc8;font-size:13px;margin:0 0 4px'>Forget the saved WiFi and reopen the setup portal.</p>"
         "<form method=POST action=/wifi><button class=w>Reset WiFi</button></form></div>"
-        "<p class=ft>Reach me at <code>capsuleradar.local</code> &middot; <a href=/update style='color:#9affc8'>Firmware update</a> &middot; v" FW_VERSION "</p>"
+        "<p class=ft>Reach me at <code>pacaskywatch.local</code> &middot; <a href=/update style='color:#9affc8'>Firmware update</a> &middot; v" FW_VERSION "</p>"
         "<script>"
         "var C=[%.5f,%.5f];var MAP=L.map('map').setView(C,10);"
         "L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'(c) OpenStreetMap'}).addTo(MAP);"
@@ -407,14 +407,13 @@ static void handleRoot() {
         "function ap(c){fetch('/airports?v='+(c?1:0)+'&save=1')}"
         "function tl(v){fetch('/trail?v='+v+'&save=1')}"
         "function ro(v){fetch('/rotate?v='+v+'&save=1')}"
-        "function sr(v){fetch('/ui_rotate?v='+v+'&save=1')}"
         "function u(v){fetch('/units?v='+v+'&save=1')}"
         "function al(v){fetch('/alerts?mode='+v+'&save=1')}"
         "function px(v){fetch('/alerts?prox='+v+'&save=1')}"
         "function gp(c){fetch('/gps?v='+(c?1:0)+'&save=1')}</script></body></html>",
         g_settings.homeLat, g_settings.homeLon, gpsRow.c_str(), ropts.c_str(), topts.c_str(),
         g_brightnessDay, iopts.c_str(), g_showSweep ? "checked" : "",
-        g_showAirports ? "checked" : "", tlopts.c_str(), rotopts.c_str(), g_uiRot, uopts.c_str(),
+        g_showAirports ? "checked" : "", tlopts.c_str(), rotopts.c_str(), uopts.c_str(),
         g_volume, g_muted ? "checked" : "", aopts.c_str(), popts.c_str(),
         g_settings.homeLat, g_settings.homeLon);
     g_web.send(200, "text/html", buf);
@@ -445,18 +444,18 @@ static void handleSave() {
 static void handleWifi() {
     g_web.send(200, "text/html",
         "<body style='background:#06100a;color:#ffb23c;font-family:sans-serif;padding:24px'>"
-        "WiFi reset. Connect to the <b>CapsuleRadar-Setup</b> network to reconfigure.</body>");
+        "WiFi reset. Connect to the <b>PacaSkyWatch-Setup</b> network to reconfigure.</body>");
     delay(400);
     g_wm.resetSettings();
     ESP.restart();
 }
 
 // On-device WiFi reset (long-press the Stats view twice). Clears saved credentials
-// and reboots: autoConnect() then finds no creds and opens the "CapsuleRadar-Setup"
+// and reboots: autoConnect() then finds no creds and opens the "PacaSkyWatch-Setup"
 // portal, so you can join a new network from your phone with no web page or laptop.
 // Uses the scheduled-reboot path so LVGL can paint the "Resetting..." message first.
 static void onWifiResetRequested() {
-    Serial.println("[wifi] on-device reset -> clearing creds, rebooting into CapsuleRadar-Setup");
+    Serial.println("[wifi] on-device reset -> clearing creds, rebooting into PacaSkyWatch-Setup");
     g_wm.resetSettings();
     g_rebootAtMs = millis() + 1500;
 }
@@ -577,28 +576,25 @@ static void handleAirports() {   // show/hide airport markers (live)
     g_web.send(200, "text/plain", "ok");
 }
 
-static void handleRotate() {   // display rotation 0/90/180/270 for any USB-C orientation (live)
+static void handleRotate() {   // whole-UI rotation: 0/90/180/270 = free hardware turns, 120 = full-frame path
     if (g_web.hasArg("v")) {
-        g_rotation = constrain((int)g_web.arg("v").toInt(), 0, 3);
-        display::setRotation((uint8_t)g_rotation);
+        int deg = ((int)g_web.arg("v").toInt() % 360 + 360) % 360;   // 0/90/120/180/270
+        if (deg % 90 == 0) {                 // exact quarter-turns: cheap hardware transpose
+            g_rotation = (deg / 90) & 3;
+            g_uiRot = 0;
+            display::setUiRotation(0.0f);
+            display::setRotation((uint8_t)g_rotation);
+        } else {                             // any other angle (120): full-frame software rotation
+            g_uiRot = deg;
+            g_rotation = 0;
+            g_settings.rotationDeg = 0.0;
+            display::setRotation(0);
+            display::setUiRotation((float)deg);
+        }
         if (g_web.hasArg("save")) {
             Preferences p;
             p.begin("capsuleradar", false);
             p.putInt("rot", g_rotation);
-            p.end();
-        }
-    }
-    g_web.send(200, "text/plain", "ok");
-}
-
-static void handleUiRotate() {   // arbitrary whole-screen rotation 0-359 deg (fixed-angle mounts)
-    if (g_web.hasArg("v")) {
-        g_uiRot = ((int)g_web.arg("v").toInt() % 360 + 360) % 360;   // wrap into 0..359
-        g_settings.rotationDeg = 0.0;                                // full-frame path handles rotation; keep the plot un-pre-rotated
-        display::setUiRotation((float)g_uiRot);                      // applies live
-        if (g_web.hasArg("save")) {
-            Preferences p;
-            p.begin("capsuleradar", false);
             p.putInt("uirot", g_uiRot);
             p.end();
         }
@@ -624,7 +620,7 @@ static void handleUpdatePage() {
     g_web.send(200, "text/html",
         "<!DOCTYPE html><html><head><meta charset=utf-8>"
         "<meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>Capsule Radar - Update</title><style>"
+        "<title>Paca Sky Watch - Update</title><style>"
         "body{background:radial-gradient(circle at 50% -10%,#0a1f15,#04100a 70%);color:#cdd6d1;"
         "font-family:system-ui,sans-serif;margin:0 auto;padding:20px;max-width:480px;min-height:100vh}"
         "h1{color:#1dff86;font-size:20px}.card{background:rgba(10,20,14,.85);border:1px solid #1f3a2b;border-radius:14px;padding:16px}"
@@ -666,7 +662,7 @@ static void handleUpdateUpload() {
 void setup() {
     Serial.begin(115200);
     delay(200);
-    Serial.println("\nCapsule Radar boot");
+    Serial.println("\nPaca Sky Watch boot");
 
     if (PIN_LCD_SCLK < 0 || PIN_I2C_SDA < 0) {
         Serial.println("[!] Pins in config.h are still -1. Copy them from the Waveshare demo.");
@@ -724,10 +720,10 @@ void setup() {
     // radar::init() runs inside display::begin() (LVGL must be up first).
 
     // --- WiFi (captive portal, non-blocking) ------------------------------
-    // First boot opens the "CapsuleRadar-Setup" AP to enter WiFi creds. Non-blocking
+    // First boot opens the "PacaSkyWatch-Setup" AP to enter WiFi creds. Non-blocking
     // so the radar keeps animating while you configure WiFi from your phone.
     g_wm.setConfigPortalBlocking(false);
-    g_wm.setTitle("Capsule Radar");
+    g_wm.setTitle("Paca Sky Watch");
     // light phosphor-green theme for the captive portal (small CSS, injected into <head>)
     g_wm.setCustomHeadElement(
         "<style>"
@@ -746,10 +742,10 @@ void setup() {
         Serial.println("[wifi] new credentials saved -> rebooting for a clean web/mDNS start");
         g_rebootAtMs = millis() + 2500;   // let the portal deliver its 'saved' page first
     });
-    if (g_wm.autoConnect("CapsuleRadar-Setup"))
+    if (g_wm.autoConnect("PacaSkyWatch-Setup"))
         Serial.println("[wifi] connected");
     else
-        Serial.println("[wifi] config portal open - join 'CapsuleRadar-Setup' to set WiFi; UI stays live");
+        Serial.println("[wifi] config portal open - join 'PacaSkyWatch-Setup' to set WiFi; UI stays live");
 
     // --- OTA ---------------------------------------------------------------
     // ArduinoOTA is started from loop() once WiFi connects (see otaUp there).
@@ -762,7 +758,7 @@ void setup() {
     g_ac_mutex = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(adsb_task, "adsb", 16384, nullptr, 1, nullptr, 0);  // TLS needs a big stack
 
-    // configuration web page (http://capsuleradar.local/)
+    // configuration web page (http://pacaskywatch.local/)
     g_web.on("/", handleRoot);
     g_web.on("/save", HTTP_POST, handleSave);
     g_web.on("/wifi", HTTP_POST, handleWifi);
@@ -774,7 +770,6 @@ void setup() {
     g_web.on("/airports", handleAirports);
     g_web.on("/trail", handleTrail);
     g_web.on("/rotate", handleRotate);
-    g_web.on("/ui_rotate", handleUiRotate);
     g_web.on("/gps", handleGps);
     g_web.on("/units", handleUnits);
     g_web.on("/update", HTTP_GET, handleUpdatePage);
@@ -803,7 +798,7 @@ void loop() {
     // OTA: set up once WiFi is up, then service it every loop (flash over the air)
     static bool otaUp = false;
     if (!otaUp && WiFi.status() == WL_CONNECTED) {
-        ArduinoOTA.setHostname("capsuleradar");        // -> capsuleradar.local (registers mDNS)
+        ArduinoOTA.setHostname("pacaskywatch");        // -> pacaskywatch.local (registers mDNS)
         ArduinoOTA.begin();
         MDNS.addService("http", "tcp", 80);            // advertise the config web page
         otaUp = true;
@@ -856,9 +851,9 @@ void loop() {
         ui_set_status(wifiUp, feedFresh, rssi, clk);
         char net[80];
         if (WiFi.status() == WL_CONNECTED)
-            snprintf(net, sizeof(net), "Configure at\ncapsuleradar.local\n%s", WiFi.localIP().toString().c_str());
+            snprintf(net, sizeof(net), "Configure at\npacaskywatch.local\n%s", WiFi.localIP().toString().c_str());
         else
-            snprintf(net, sizeof(net), "WiFi setup:\njoin CapsuleRadar-Setup");
+            snprintf(net, sizeof(net), "WiFi setup:\njoin PacaSkyWatch-Setup");
         ui_set_netinfo(net);
         const bool bpresent = battery_present();
         ui_set_battery(battery_percent(), battery_charging(), bpresent);
