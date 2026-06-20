@@ -47,6 +47,7 @@ static bool                  g_showSweep = true;                     // rotating
 static int                   g_units = 0;                            // 0=Aviation 1=Metric 2=Imperial (web/NVS)
 static bool                  g_showAirports = true;                  // airport markers on/off (web/NVS)
 static int                   g_rotation = 0;                         // display rotation 0/1/2/3 = 0/90/180/270 (web/NVS)
+static int                   g_uiRot    = 0;                          // arbitrary full-screen rotation in degrees (web/NVS)
 static bool                  g_useGps = false;                       // auto-set home from the LC76G GPS (-G variant) (web/NVS)
 static int                   g_trailLen = 2;                         // aircraft trails 0=off 1=short 2=med 3=long (web/NVS)
 static volatile bool         g_onBattery = false;                    // discharging (set on core 1, read on core 0)
@@ -375,7 +376,7 @@ static void handleRoot() {
         "<label><input type=checkbox class=ck %s onchange='ap(this.checked)'>Show airports</label>"
         "<label>Aircraft trails</label><select onchange='tl(this.value)'>%s</select>"
         "<label>Screen rotation (USB-C position)</label><select onchange='ro(this.value)'>%s</select>"
-        "<label>Radar plot rotation (0-359&deg;, for round mounts)</label>"
+        "<label>Full screen rotation (0-359&deg;, rotates everything)</label>"
         "<input type=number min=0 max=359 step=1 value='%d' onchange='sr(this.value)'>"
         "<label>Units</label><select onchange='u(this.value)'>%s</select></div>"
         "<div class=card><div class=t>Sound</div>"
@@ -406,14 +407,14 @@ static void handleRoot() {
         "function ap(c){fetch('/airports?v='+(c?1:0)+'&save=1')}"
         "function tl(v){fetch('/trail?v='+v+'&save=1')}"
         "function ro(v){fetch('/rotate?v='+v+'&save=1')}"
-        "function sr(v){fetch('/scope_rotate?v='+v+'&save=1')}"
+        "function sr(v){fetch('/ui_rotate?v='+v+'&save=1')}"
         "function u(v){fetch('/units?v='+v+'&save=1')}"
         "function al(v){fetch('/alerts?mode='+v+'&save=1')}"
         "function px(v){fetch('/alerts?prox='+v+'&save=1')}"
         "function gp(c){fetch('/gps?v='+(c?1:0)+'&save=1')}</script></body></html>",
         g_settings.homeLat, g_settings.homeLon, gpsRow.c_str(), ropts.c_str(), topts.c_str(),
         g_brightnessDay, iopts.c_str(), g_showSweep ? "checked" : "",
-        g_showAirports ? "checked" : "", tlopts.c_str(), rotopts.c_str(), (int)g_settings.rotationDeg, uopts.c_str(),
+        g_showAirports ? "checked" : "", tlopts.c_str(), rotopts.c_str(), g_uiRot, uopts.c_str(),
         g_volume, g_muted ? "checked" : "", aopts.c_str(), popts.c_str(),
         g_settings.homeLat, g_settings.homeLon);
     g_web.send(200, "text/html", buf);
@@ -590,14 +591,15 @@ static void handleRotate() {   // display rotation 0/90/180/270 for any USB-C or
     g_web.send(200, "text/plain", "ok");
 }
 
-static void handleScopeRotate() {   // arbitrary radar-plot rotation 0-359 deg (round-mount offset)
+static void handleUiRotate() {   // arbitrary whole-screen rotation 0-359 deg (fixed-angle mounts)
     if (g_web.hasArg("v")) {
-        int v = ((int)g_web.arg("v").toInt() % 360 + 360) % 360;   // wrap into 0..359
-        g_settings.rotationDeg = (double)v;                        // radar::update picks it up next poll
+        g_uiRot = ((int)g_web.arg("v").toInt() % 360 + 360) % 360;   // wrap into 0..359
+        g_settings.rotationDeg = 0.0;                                // full-frame path handles rotation; keep the plot un-pre-rotated
+        display::setUiRotation((float)g_uiRot);                      // applies live
         if (g_web.hasArg("save")) {
             Preferences p;
             p.begin("capsuleradar", false);
-            p.putInt("scoperot", v);
+            p.putInt("uirot", g_uiRot);
             p.end();
         }
     }
@@ -690,13 +692,14 @@ void setup() {
         g_showSweep = p.getBool("sweep", true);
         g_showAirports = p.getBool("airports", true);
         g_rotation = p.getInt("rot", 0);
-        g_settings.rotationDeg = (double)p.getInt("scoperot", 0);
+        g_uiRot    = p.getInt("uirot", 0);
         p.end();
         radar::setTheme(t);
         radar::setSweepEnabled(g_showSweep);
         radar::setAirportsEnabled(g_showAirports);
         radar::setTrailLength(g_trailLen);
         display::setRotation((uint8_t)g_rotation);
+        display::setUiRotation((float)g_uiRot);
     }
     radar::setThemeChangedCb(saveTheme);
     ui_set_range_cb(onRangeChange);              // on-screen zoom button
@@ -771,7 +774,7 @@ void setup() {
     g_web.on("/airports", handleAirports);
     g_web.on("/trail", handleTrail);
     g_web.on("/rotate", handleRotate);
-    g_web.on("/scope_rotate", handleScopeRotate);
+    g_web.on("/ui_rotate", handleUiRotate);
     g_web.on("/gps", handleGps);
     g_web.on("/units", handleUnits);
     g_web.on("/update", HTTP_GET, handleUpdatePage);

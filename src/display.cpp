@@ -13,6 +13,8 @@
 #include <Arduino_GFX_Library.h>
 #include <lvgl.h>
 #include <esp_heap_caps.h>
+#include <math.h>
+#include <string.h>
 
 // --- Arduino_GFX panel -------------------------------------------------------
 // Typed as Arduino_CO5300* (not Arduino_GFX*) so setBrightness() — declared on
@@ -34,6 +36,18 @@ uint32_t display_frames() { return s_frameCount; }
 static volatile uint8_t s_rot = 0;           // display rotation: 0/1/2/3 = 0°/90°/180°/270°
 static lv_color_t *s_rotBuf = nullptr;       // PSRAM scratch for 90/270° transpose (see begin())
 
+// Arbitrary whole-screen rotation. When s_uiRotDeg != 0 the flush stops doing the cheap
+// 90-step transpose and instead composites every LVGL stripe into a persistent full-frame
+// buffer (s_fb), then rotates that whole frame by s_uiRotDeg into s_rotFb and pushes it.
+// Touch input is run through the inverse rotation, so taps, the detail card, text, and the
+// nm readout all rotate together and stay interactive. Cost: a full-frame rotate + push per
+// refresh (heavier than partial updates), which is why it's only engaged when nonzero.
+static float        s_uiRotDeg = 0.0f;       // 0 = off
+static float        s_uiCos    = 1.0f;       // cos(s_uiRotDeg), precomputed
+static float        s_uiSin    = 0.0f;       // sin(s_uiRotDeg), precomputed
+static lv_color_t  *s_fb       = nullptr;    // PSRAM: full unrotated frame (composited)
+static lv_color_t  *s_rotFb    = nullptr;    // PSRAM: full rotated frame (pushed to panel)
+
 // LVGL -> panel, applying the chosen rotation while pushing.
 //   0°   : straight through.
 //   180° : reverse the flat block in place — no scratch buffer.
@@ -43,6 +57,51 @@ static lv_color_t *s_rotBuf = nullptr;       // PSRAM scratch for 90/270° trans
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px) {
     const int w = (int)(area->x2 - area->x1 + 1);
     const int h = (int)(area->y2 - area->y1 + 1);
+
+    // ---- arbitrary whole-screen rotation path -------------------------------
+    if (s_uiRotDeg != 0.0f && s_fb && s_rotFb) {
+        // 1) composite this dirty stripe into the persistent full (unrotated) frame
+        for (int j = 0; j < h; ++j) {
+            const int yy = area->y1 + j;
+            if (yy < 0 || yy >= SCREEN_H) continue;
+            int x1 = area->x1, x2 = area->x2;
+            if (x1 < 0) x1 = 0;
+            if (x2 > SCREEN_W - 1) x2 = SCREEN_W - 1;
+            const int cnt = x2 - x1 + 1;
+            if (cnt > 0)
+                memcpy(&s_fb[yy * SCREEN_W + x1], &px[j * w + (x1 - area->x1)], (size_t)cnt * sizeof(lv_color_t));
+        }
+        // 2) once the frame is complete, rotate the whole thing and push it
+        if (lv_disp_flush_is_last(drv)) {
+            const float cx = (SCREEN_W - 1) * 0.5f, cy = (SCREEN_H - 1) * 0.5f;
+            const float ca = s_uiCos, sa = s_uiSin;
+            const lv_color_t black = lv_color_black();
+            for (int y = 0; y < SCREEN_H; ++y) {
+                // source coords for dest x=0, then step by (+ca,-sa) per dest x (affine, no per-pixel trig)
+                float sx = cx + (0.0f - cx) * ca + ((float)y - cy) * sa;
+                float sy = cy - (0.0f - cx) * sa + ((float)y - cy) * ca;
+                lv_color_t *drow = &s_rotFb[y * SCREEN_W];
+                for (int x = 0; x < SCREEN_W; ++x) {
+                    const int ix = (int)(sx + 0.5f);
+                    const int iy = (int)(sy + 0.5f);
+                    drow[x] = (ix >= 0 && ix < SCREEN_W && iy >= 0 && iy < SCREEN_H)
+                                  ? s_fb[iy * SCREEN_W + ix] : black;
+                    sx += ca;
+                    sy -= sa;
+                }
+            }
+#if (LV_COLOR_16_SWAP != 0)
+            s_gfx->draw16bitBeRGBBitmap(0, 0, (uint16_t *)s_rotFb, SCREEN_W, SCREEN_H);
+#else
+            s_gfx->draw16bitRGBBitmap(0, 0, (uint16_t *)s_rotFb, SCREEN_W, SCREEN_H);
+#endif
+            s_frameCount++;
+        }
+        lv_disp_flush_ready(drv);
+        return;
+    }
+
+    // ---- original 0/90/180/270 path -----------------------------------------
     lv_color_t *out = px;
     int16_t  dx = area->x1, dy = area->y1;
     uint16_t dw = (uint16_t)w, dh = (uint16_t)h;
@@ -98,6 +157,15 @@ static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
     uint16_t x, y;
     if (touch_read(&x, &y)) {
         uint16_t lx = x, ly = y;                          // map physical touch -> logical (inverse rotation)
+        if (s_uiRotDeg != 0.0f) {
+            const float cx = (SCREEN_W - 1) * 0.5f, cy = (SCREEN_H - 1) * 0.5f;
+            const float fx = (float)x - cx, fy = (float)y - cy;
+            int mlx = (int)lroundf(cx + fx * s_uiCos + fy * s_uiSin);
+            int mly = (int)lroundf(cy - fx * s_uiSin + fy * s_uiCos);
+            if (mlx < 0) mlx = 0; if (mlx > SCREEN_W - 1) mlx = SCREEN_W - 1;
+            if (mly < 0) mly = 0; if (mly > SCREEN_H - 1) mly = SCREEN_H - 1;
+            lx = (uint16_t)mlx; ly = (uint16_t)mly;
+        } else
         switch (s_rot) {
             case 1: lx = y;                            ly = (uint16_t)(SCREEN_H - 1 - x); break;
             case 2: lx = (uint16_t)(SCREEN_W - 1 - x); ly = (uint16_t)(SCREEN_H - 1 - y); break;
@@ -149,6 +217,15 @@ bool begin() {
     // falls back to un-rotated for 90/270° if PSRAM is exhausted).
     s_rotBuf = (lv_color_t *)heap_caps_malloc(buf_px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
 
+    // Full-frame buffers for arbitrary whole-screen rotation (PSRAM; ~434 KB each). One
+    // holds the composited unrotated frame, the other the rotated frame we push. Allocated
+    // up front (before WiFi/TLS) so the contiguous PSRAM the handshake needs is still free.
+    // If either fails we just never enable arbitrary rotation (the flush guards on both).
+    const size_t fb_px = (size_t)SCREEN_W * SCREEN_H;
+    s_fb    = (lv_color_t *)heap_caps_malloc(fb_px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+    s_rotFb = (lv_color_t *)heap_caps_malloc(fb_px * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+    if (s_fb) memset(s_fb, 0, fb_px * sizeof(lv_color_t));
+
     lv_disp_drv_init(&s_disp_drv);
     s_disp_drv.hor_res  = SCREEN_W;
     s_disp_drv.ver_res  = SCREEN_H;
@@ -182,6 +259,20 @@ void setRotation(uint8_t quarters) {
     if (scr) lv_obj_invalidate(scr);   // full repaint in the new orientation
 }
 uint8_t rotation() { return s_rot; }
+
+void setUiRotation(float deg) {
+    float d = fmodf(deg, 360.0f);
+    if (d < 0.0f) d += 360.0f;
+    s_uiRotDeg = d;
+    const float a = d * (float)M_PI / 180.0f;
+    s_uiCos = cosf(a);
+    s_uiSin = sinf(a);
+    if (d != 0.0f) s_rot = 0;          // arbitrary rotation owns the flush; drop the 90-step path
+    if (s_fb) memset(s_fb, 0, (size_t)SCREEN_W * SCREEN_H * sizeof(lv_color_t));
+    lv_obj_t *scr = lv_scr_act();
+    if (scr) lv_obj_invalidate(scr);   // force a full repaint so the whole frame recomposites
+}
+float uiRotation() { return s_uiRotDeg; }
 
 uint32_t inactiveMs() { return lv_disp_get_inactive_time(NULL); }
 

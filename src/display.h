@@ -25,6 +25,13 @@ uint32_t inactiveMs();
 void setRotation(uint8_t quarters);
 uint8_t rotation();
 
+// Rotate the ENTIRE rendered screen by an arbitrary angle (degrees). Unlike setRotation's
+// 90° steps (a free pixel transpose), this composites the full frame and rotates it, so any
+// angle works and text, the detail card, and touch all rotate together. 0 disables it and
+// restores the fast path. Heavier per frame; intended for fixed-angle mounts.
+void setUiRotation(float deg);
+float uiRotation();
+
 } // namespace display
 
 uint32_t display_frames();   // total rendered frames (for FPS measurement)
