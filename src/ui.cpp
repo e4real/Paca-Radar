@@ -29,6 +29,13 @@ static lv_obj_t *s_list = nullptr;
 static lv_obj_t *s_statsLbl = nullptr;
 static lv_obj_t *s_statsNet = nullptr;
 
+// On-device WiFi reset: long-press the Stats view once to arm, again within the
+// window to confirm. Lets you re-run setup when you're away from home WiFi and
+// can't reach the web config page. main.cpp supplies the actual reset action.
+static void   (*s_wifiResetCb)(void) = nullptr;
+static uint32_t s_wifiArmMs = 0;
+void ui_set_wifi_reset_cb(void (*cb)(void)) { s_wifiResetCb = cb; }
+
 // --------------------------------------------------------------------- units
 // 0 = Aviation (ft, kt, km) · 1 = Metric (m, km/h, km) · 2 = Imperial (ft, mph, mi).
 // The feed gives altitude in ft, speed in kt, vertical speed in fpm, distance in km.
@@ -212,6 +219,21 @@ static void radar_longpress_cb(lv_event_t *e) {   // long-press cycles the visua
     (void)e;
     radar::cycleTheme();
     s_longPressed = true;
+}
+
+// Long-press the Stats view to reset WiFi (two-step, so a stray hold won't wipe creds).
+// First hold arms a ~6 s window and shows a prompt; a second hold inside it confirms.
+static void stats_longpress_cb(lv_event_t *e) {
+    (void)e;
+    const uint32_t now = lv_tick_get();
+    if (s_wifiArmMs && (now - s_wifiArmMs) < 6000) {
+        s_wifiArmMs = 0;
+        if (s_statsNet) lv_label_set_text(s_statsNet, "Resetting WiFi...\njoin CapsuleRadar-Setup");
+        if (s_wifiResetCb) s_wifiResetCb();
+    } else {
+        s_wifiArmMs = now;
+        if (s_statsNet) lv_label_set_text(s_statsNet, "Reset WiFi?\nhold again to confirm");
+    }
 }
 
 static void radar_clicked_cb(lv_event_t *e) {
@@ -591,6 +613,8 @@ void ui_create(void) {
     // --- stats tile (circular panel) ---
     lv_obj_t *sp = make_round_panel(s_tileStats);
     make_tile_title(sp, "STATS");
+    lv_obj_add_flag(sp, LV_OBJ_FLAG_CLICKABLE);   // so the panel receives the long-press
+    lv_obj_add_event_cb(sp, stats_longpress_cb, LV_EVENT_LONG_PRESSED, NULL);
     s_statsLbl = lv_label_create(sp);
     lv_obj_set_style_text_font(s_statsLbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(s_statsLbl, UI_SOFT, 0);

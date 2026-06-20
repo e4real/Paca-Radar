@@ -10,5 +10,6 @@ void ui_set_date(const char *date);  // top HUD date line (e.g. "08 Jun 2026")
 void ui_set_netinfo(const char *line);  // stats view footer: how to reach the config page
 void ui_splash_show(void);  // branded boot splash (auto-fades, covers init time)
 void ui_set_range_cb(void (*cb)(float km));  // on-screen zoom button -> notify main
+void ui_set_wifi_reset_cb(void (*cb)(void));  // long-press the Stats view (hold twice) -> reset WiFi
 void ui_set_range_km(float km);              // update the zoom button label / sync the cycle
 void ui_set_units(int preset);               // 0 = Aviation (ft,kt,km) · 1 = Metric (m,km/h,km) · 2 = Imperial (ft,mph,mi)

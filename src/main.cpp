@@ -447,6 +447,16 @@ static void handleWifi() {
     ESP.restart();
 }
 
+// On-device WiFi reset (long-press the Stats view twice). Clears saved credentials
+// and reboots: autoConnect() then finds no creds and opens the "CapsuleRadar-Setup"
+// portal, so you can join a new network from your phone with no web page or laptop.
+// Uses the scheduled-reboot path so LVGL can paint the "Resetting..." message first.
+static void onWifiResetRequested() {
+    Serial.println("[wifi] on-device reset -> clearing creds, rebooting into CapsuleRadar-Setup");
+    g_wm.resetSettings();
+    g_rebootAtMs = millis() + 1500;
+}
+
 static void handleBright() {
     if (g_web.hasArg("v")) {
         g_brightnessDay = constrain((int)g_web.arg("v").toInt(), 0, 255);
@@ -672,6 +682,7 @@ void setup() {
     }
     radar::setThemeChangedCb(saveTheme);
     ui_set_range_cb(onRangeChange);              // on-screen zoom button
+    ui_set_wifi_reset_cb(onWifiResetRequested);  // long-press Stats (twice) -> re-run WiFi setup
     ui_set_units(g_units);                       // apply saved unit preset
     ui_set_range_km(g_settings.rangeKm);         // show the loaded range
 
