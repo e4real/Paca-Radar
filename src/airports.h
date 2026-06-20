@@ -7,6 +7,6 @@
 #include <lvgl.h>
 
 void airports_project(double homeLat, double homeLon, double rangeKm,
-                      float cx, float cy, float rOuterPx);
+                      float cx, float cy, float rOuterPx, double rotationDeg = 0.0);
 
 void airports_draw(lv_draw_ctx_t *ctx, lv_color_t color, lv_opa_t opa);

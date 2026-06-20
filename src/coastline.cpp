@@ -10,7 +10,7 @@
 static std::vector<std::vector<lv_point_t>> s_lines;
 
 void coastline_project(double homeLat, double homeLon, double rangeKm,
-                       float cx, float cy, float rOuterPx) {
+                       float cx, float cy, float rOuterPx, double rotationDeg) {
     s_lines.clear();
     if (rangeKm <= 0) return;
 
@@ -37,7 +37,7 @@ void coastline_project(double homeLat, double homeLon, double rangeKm,
                 if (dist <= rangeKm * EDGE) {
                     const double brg = geo::bearingDeg(homeLat, homeLon, lat, lon);
                     const double rPx = (dist / rangeKm) * rOuterPx;
-                    const double a   = brg * M_PI / 180.0;
+                    const double a   = (brg - rotationDeg) * M_PI / 180.0;
                     lv_point_t sp;
                     sp.x = (lv_coord_t)lroundf((float)(cx + rPx * sin(a)));
                     sp.y = (lv_coord_t)lroundf((float)(cy - rPx * cos(a)));

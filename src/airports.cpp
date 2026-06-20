@@ -9,7 +9,7 @@ struct Apt { lv_point_t pos; char iata[4]; uint8_t large; };
 static std::vector<Apt> s_apts;
 
 void airports_project(double homeLat, double homeLon, double rangeKm,
-                      float cx, float cy, float rOuterPx) {
+                      float cx, float cy, float rOuterPx, double rotationDeg) {
     s_apts.clear();
     if (rangeKm <= 0) return;
 
@@ -28,7 +28,7 @@ void airports_project(double homeLat, double homeLon, double rangeKm,
         if (dist > rangeKm) continue;                                       // only inside the scope
         const double brg = geo::bearingDeg(homeLat, homeLon, lat, lon);
         const double rPx = (dist / rangeKm) * rOuterPx;
-        const double a   = brg * M_PI / 180.0;
+        const double a   = (brg - rotationDeg) * M_PI / 180.0;
         Apt ap;
         ap.pos.x = (lv_coord_t)lroundf((float)(cx + rPx * sin(a)));
         ap.pos.y = (lv_coord_t)lroundf((float)(cy - rPx * cos(a)));

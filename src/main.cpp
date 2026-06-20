@@ -375,6 +375,8 @@ static void handleRoot() {
         "<label><input type=checkbox class=ck %s onchange='ap(this.checked)'>Show airports</label>"
         "<label>Aircraft trails</label><select onchange='tl(this.value)'>%s</select>"
         "<label>Screen rotation (USB-C position)</label><select onchange='ro(this.value)'>%s</select>"
+        "<label>Radar plot rotation (0-359&deg;, for round mounts)</label>"
+        "<input type=number min=0 max=359 step=1 value='%d' onchange='sr(this.value)'>"
         "<label>Units</label><select onchange='u(this.value)'>%s</select></div>"
         "<div class=card><div class=t>Sound</div>"
         "<label>Volume</label>"
@@ -404,13 +406,14 @@ static void handleRoot() {
         "function ap(c){fetch('/airports?v='+(c?1:0)+'&save=1')}"
         "function tl(v){fetch('/trail?v='+v+'&save=1')}"
         "function ro(v){fetch('/rotate?v='+v+'&save=1')}"
+        "function sr(v){fetch('/scope_rotate?v='+v+'&save=1')}"
         "function u(v){fetch('/units?v='+v+'&save=1')}"
         "function al(v){fetch('/alerts?mode='+v+'&save=1')}"
         "function px(v){fetch('/alerts?prox='+v+'&save=1')}"
         "function gp(c){fetch('/gps?v='+(c?1:0)+'&save=1')}</script></body></html>",
         g_settings.homeLat, g_settings.homeLon, gpsRow.c_str(), ropts.c_str(), topts.c_str(),
         g_brightnessDay, iopts.c_str(), g_showSweep ? "checked" : "",
-        g_showAirports ? "checked" : "", tlopts.c_str(), rotopts.c_str(), uopts.c_str(),
+        g_showAirports ? "checked" : "", tlopts.c_str(), rotopts.c_str(), (int)g_settings.rotationDeg, uopts.c_str(),
         g_volume, g_muted ? "checked" : "", aopts.c_str(), popts.c_str(),
         g_settings.homeLat, g_settings.homeLon);
     g_web.send(200, "text/html", buf);
@@ -587,6 +590,20 @@ static void handleRotate() {   // display rotation 0/90/180/270 for any USB-C or
     g_web.send(200, "text/plain", "ok");
 }
 
+static void handleScopeRotate() {   // arbitrary radar-plot rotation 0-359 deg (round-mount offset)
+    if (g_web.hasArg("v")) {
+        int v = ((int)g_web.arg("v").toInt() % 360 + 360) % 360;   // wrap into 0..359
+        g_settings.rotationDeg = (double)v;                        // radar::update picks it up next poll
+        if (g_web.hasArg("save")) {
+            Preferences p;
+            p.begin("capsuleradar", false);
+            p.putInt("scoperot", v);
+            p.end();
+        }
+    }
+    g_web.send(200, "text/plain", "ok");
+}
+
 static void handleGps() {   // auto-set the centre point from the LC76G GPS (-G variant)
     if (g_web.hasArg("v")) {
         g_useGps = g_web.arg("v").toInt() != 0;
@@ -673,6 +690,7 @@ void setup() {
         g_showSweep = p.getBool("sweep", true);
         g_showAirports = p.getBool("airports", true);
         g_rotation = p.getInt("rot", 0);
+        g_settings.rotationDeg = (double)p.getInt("scoperot", 0);
         p.end();
         radar::setTheme(t);
         radar::setSweepEnabled(g_showSweep);
@@ -753,6 +771,7 @@ void setup() {
     g_web.on("/airports", handleAirports);
     g_web.on("/trail", handleTrail);
     g_web.on("/rotate", handleRotate);
+    g_web.on("/scope_rotate", handleScopeRotate);
     g_web.on("/gps", handleGps);
     g_web.on("/units", handleUnits);
     g_web.on("/update", HTTP_GET, handleUpdatePage);

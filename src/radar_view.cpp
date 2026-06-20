@@ -76,6 +76,7 @@ static lv_obj_t  *s_acLayer   = nullptr;
 static lv_obj_t  *s_flowCanvas = nullptr;
 static lv_color_t *s_flowBuf  = nullptr;
 static lv_obj_t  *s_rose[4]   = {nullptr, nullptr, nullptr, nullptr};
+static float      s_scopeRotDeg = 0.0f;   // arbitrary scope rotation (deg); applied at draw time
 static lv_obj_t  *s_centerDot = nullptr;
 static lv_obj_t  *s_pulse     = nullptr;
 static lv_obj_t  *s_rangeLbl  = nullptr;
@@ -149,7 +150,20 @@ static inline lv_point_t rim_point(float bearingDeg, float r) {
     return p;
 }
 
-// rotate the local point (px,py) by `deg` (clockwise, screen coords) and offset to (ox,oy)
+// Place the N/S/E/W labels around the rim for the current scope rotation, so the
+// compass still points the right way once the plot is rotated. rose[] order is N,S,E,W.
+static void position_rose(double rotationDeg) {
+    const float r = (float)RADAR_R_OUTER_PX - 18.0f;
+    const int   bear[4] = { 0, 180, 90, 270 };   // matches s_rose[0..3] = N,S,E,W
+    for (int i = 0; i < 4; ++i) {
+        if (!s_rose[i]) continue;
+        const float a  = (float)((bear[i] - rotationDeg) * M_PI / 180.0);
+        const lv_coord_t dx = (lv_coord_t)lroundf(r * sinf(a));
+        const lv_coord_t dy = (lv_coord_t)lroundf(-r * cosf(a));
+        lv_obj_align(s_rose[i], LV_ALIGN_CENTER, dx, dy);
+    }
+}
+
 static inline lv_point_t rot_pt(float px, float py, float deg, lv_coord_t ox, lv_coord_t oy) {
     const float a = deg * (float)M_PI / 180.0f;
     const float c = cosf(a), s = sinf(a);
@@ -420,11 +434,12 @@ static void draw_offrange(lv_draw_ctx_t *d, const AcDraw &ac) {
     lv_draw_rect(d, &b, &r);
 
     // small orange triangle just outside it, pointing toward the aircraft's bearing
-    const lv_coord_t ox = (lv_coord_t)lroundf(ac.pos.x + 12.0f * sinf(ac.bearingDeg * (float)M_PI / 180.0f));
-    const lv_coord_t oy = (lv_coord_t)lroundf(ac.pos.y - 12.0f * cosf(ac.bearingDeg * (float)M_PI / 180.0f));
-    lv_point_t tri[3] = { rot_pt(0, -7, ac.bearingDeg, ox, oy),
-                          rot_pt(5, 4, ac.bearingDeg, ox, oy),
-                          rot_pt(-5, 4, ac.bearingDeg, ox, oy) };
+    const float arrowBrg = ac.bearingDeg - s_scopeRotDeg;
+    const lv_coord_t ox = (lv_coord_t)lroundf(ac.pos.x + 12.0f * sinf(arrowBrg * (float)M_PI / 180.0f));
+    const lv_coord_t oy = (lv_coord_t)lroundf(ac.pos.y - 12.0f * cosf(arrowBrg * (float)M_PI / 180.0f));
+    lv_point_t tri[3] = { rot_pt(0, -7, arrowBrg, ox, oy),
+                          rot_pt(5, 4, arrowBrg, ox, oy),
+                          rot_pt(-5, 4, arrowBrg, ox, oy) };
     lv_draw_rect_dsc_t td;
     lv_draw_rect_dsc_init(&td);
     td.bg_color = ORB_ACCENT;
@@ -452,7 +467,8 @@ static void ac_draw_cb(lv_event_t *e) {
         } else {
             if (!ac.inRange) continue;            // phosphor shows in-range traffic only
             draw_trail(d, ac, ac.color);
-            const float th = ((ac.track != ac.track) ? 0.0f : ac.track) * (float)M_PI / 180.0f;
+            const float trk = ((ac.track != ac.track) ? 0.0f : ac.track) - s_scopeRotDeg;
+            const float th = trk * (float)M_PI / 180.0f;
             const float c = cosf(th), s = sinf(th);
             lv_point_t pts[4];
             for (int i = 0; i < 4; ++i) {
@@ -702,14 +718,18 @@ void update(const std::vector<Aircraft> &aircraft, const RadarSettings &s) {
     const float R = (float)RADAR_R_OUTER_PX;
     ++s_flowGen;                                  // one tick per poll; flow segments age in these units
 
+    s_scopeRotDeg = (float)s.rotationDeg;   // draws (glyphs, off-range arrows) read this
+
     // Reproject the coastline only when the scope geometry actually changes (home
-    // moved or range zoomed) — never per frame. Then repaint the static chrome layer.
+    // moved, range zoomed, or rotation changed) — never per frame. Then repaint chrome.
     static double s_coLat = 1e9, s_coLon = 1e9; static float s_coRange = -1.0f;
-    if (s.homeLat != s_coLat || s.homeLon != s_coLon || s.rangeKm != s_coRange) {
+    static double s_coRot = 1e9;
+    if (s.homeLat != s_coLat || s.homeLon != s_coLon || s.rangeKm != s_coRange || s.rotationDeg != s_coRot) {
         const bool firstFix = (s_coRange < 0.0f);
-        s_coLat = s.homeLat; s_coLon = s.homeLon; s_coRange = s.rangeKm;
-        coastline_project(s.homeLat, s.homeLon, s.rangeKm, s_cx, s_cy, R);
-        airports_project(s.homeLat, s.homeLon, s.rangeKm, s_cx, s_cy, R);
+        s_coLat = s.homeLat; s_coLon = s.homeLon; s_coRange = s.rangeKm; s_coRot = s.rotationDeg;
+        coastline_project(s.homeLat, s.homeLon, s.rangeKm, s_cx, s_cy, R, s.rotationDeg);
+        airports_project(s.homeLat, s.homeLon, s.rangeKm, s_cx, s_cy, R, s.rotationDeg);
+        position_rose(s.rotationDeg);
         if (s_gridLayer) lv_obj_invalidate(s_gridLayer);
         if (!firstFix) {
             // Scope scale/center changed: old trails were plotted at the previous
